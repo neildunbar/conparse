@@ -1,0 +1,14 @@
+[package]
+name = "config-parser"
+version = "0.0.1"
+authors = ["Neil Dunbar <neil.dunbar@pobox.com>"]
+
+[lib]
+name = "conparse"
+test = true
+
+[dependencies]
+
+log = "0.2.1"
+env_logger = "0.2.1"
+regex = "0.1.11"
