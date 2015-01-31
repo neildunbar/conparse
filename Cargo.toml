@@ -1,5 +1,5 @@
 [package]
-name = "config-parser"
+name = "conparse"
 version = "0.0.1"
 authors = ["Neil Dunbar <neil.dunbar@pobox.com>"]
 
