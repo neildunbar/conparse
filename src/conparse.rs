@@ -1,5 +1,6 @@
 extern crate regex;
 
+
 use self::regex::{Regex,Captures};
 
 use std::collections::{HashMap,HashSet};
@@ -12,6 +13,9 @@ use std::old_io::{Open,IoError,ReadWrite,MemWriter,MemReader,
                   BufferedReader,IoResult,IoErrorKind,File,standard_error};
 use std::ascii::OwnedAsciiExt;
 use std::str::FromStr;
+use std::os::make_absolute;
+
+use expand::expand_homedir;
 
 pub struct InterpString {
     raw_string : String
@@ -340,6 +344,7 @@ fn from_reader_helper<T: ContinuationReader>(cp : &mut ConfigParser, r : &mut T)
     }
 }
 
+
 impl ConfigParser {
     ///
     /// Creates an empty ConfigParser with default key,value pairs
@@ -451,7 +456,6 @@ impl ConfigParser {
         ConfigParser::from_readers(v1.as_mut_slice(), kvdefaults)
     }
 
-
     ///
     /// Create a new ConfigParser from reading a list of files
     ///
@@ -468,8 +472,22 @@ impl ConfigParser {
         let mut v = vec![];
         for s in ss.iter() {
             let p = Path::new(*s);
+            let exp_p = match expand_homedir(&p) {
+                Ok(ep) => ep,
+                Err(e) => {
+                    error!("Cannot expand user homedir of {} : {}", p.display(), e);
+                    p.clone()
+                }
+            };
+            let abs_p = match make_absolute(&exp_p) {
+                Ok(ap) => ap,
+                Err(e) => {
+                    error!("Cannot make absolute directory of {} : {}", p.display(), e);
+                    exp_p.clone()
+                }
+            };
 
-            match File::open(&p) {
+            match File::open(&abs_p) {
                 Ok(f) => {
                     v.push(BufferedReader::new(f))
                 },

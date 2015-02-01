@@ -3,6 +3,7 @@
 #![feature(io)]
 #![feature(collections)]
 #![feature(std_misc)]
+#![feature(os)]
 
 //! # ConfigParser - a Python style configuration file reader/writer
 //!
@@ -243,3 +244,4 @@
 extern crate env_logger;
 
 pub mod conparse;
+pub mod expand;
