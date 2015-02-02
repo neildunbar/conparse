@@ -39,7 +39,7 @@ pub struct ConfigParser {
     i_re : Regex // %(option)s interpolation regex
 }
 
-#[derive(Show,Copy,PartialEq)]
+#[derive(Debug,Copy,PartialEq)]
 pub enum FetchError {
     NoSuchSection,
     NoSuchOption,
