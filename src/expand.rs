@@ -4,18 +4,39 @@ extern crate regex;
 use self::regex::Regex;
 use std::old_io::{IoResult,IoErrorKind,IoError};
 use std::os;
-
-//use self::posix::AsNTStr;
-//use std::ffi;
-
-pub fn foo() {
-    println!("foo")
-}
+use std::ffi;
+use std::str;
+use self::posix::ToNTStr;
 
 // can't seem to find any sort of expanduser type affair
 // so crafting this temporary one for unix style systems
 // it's just an clone() function for non-unix.
 #[cfg(all(unix))]
+
+pub fn get_homedir(uname : &str) -> String {
+    let mut pwbuf = [0u8;4096];
+    let mut res : usize = 0;
+    let mut pwd = posix::pwd::passwd::new();
+    let rv = posix::pwd::getpwnam_r(&uname.to_nt_str(), &mut pwd, &mut pwbuf, &mut res);
+    let pw = pwd.pw_dir as *const _;
+    let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
+
+    match str::from_utf8(hd) {
+        Ok(hd_str) => {
+            if rv == 0 {
+                info!("Fetched homedir of {} as {}", uname, hd_str);
+                hd_str.to_string()
+            } else {
+                warn!("getpwnam_r for \"{}\" returns error code: {}", uname, rv);
+                "/".to_string()
+            }
+        },
+        Err(e) => {
+            warn!("pw_dir for \"{}\" is invalid UTF-8: {:?}", uname, e);
+            "/".to_string()
+        }
+    }
+}
 
 pub fn expand_homedir(p : &Path) -> IoResult<Path> {
     let u_re = match Regex::new(r"^\s*~(\w*)/(.*)$") {
@@ -46,29 +67,7 @@ pub fn expand_homedir(p : &Path) -> IoResult<Path> {
                             None => Path::new("/") // no home dir -
                                 // assume root
                         },
-                        _ => {
-
-                            // disabled for the moment - all the
-                            // unsafe stuff needs more work.
-
-
-                        //uname => {
-                            //let mut pwbuf = [0u8;4096];
-                            //let mut res : usize = 0;
-                            //let mut pwd = posix::pwd::passwd::new();
-
-                            // just guessing at 4K max - routine will
-                            // error if bound would be violated. In
-                            // theory a retry-with-doubling would
-                            // work, but too much hassle right now
-                            //posix::pwd::getpwnam_r(uname.as_nt_str(), &mut pwd, &mut pwbuf, &mut res);
-                            //if res == 0 {
-                            //    let bytes = unsafe { ffi::c_str_to_bytes(&pwd.pw_dir as &*const i8) };
-                            //    Path::new(bytes)
-                            //} else {
-                                Path::new("/")
-                            //}
-                        }
+                        uname => Path::new(get_homedir(uname))
                     };
                     
                     match c.at(2) {
@@ -106,11 +105,15 @@ pub fn expand_homedir(p : &Path) -> IoResult<Path> {
 #[cfg(all(unix))]
 
 mod test {
+    extern crate env_logger;
+
     use std::os;
     use expand::*;
 
     #[test]
     fn test_expand_homedir() {
+        // env_logger::init().unwrap();
+
         let homedir = match os::homedir() {
             Some(h) => h,
             None => { Path::new("bound-to-fail")}
@@ -118,11 +121,19 @@ mod test {
         let mut expected = Path::new(homedir);
         expected.push("foo.txt");
         let p = Path::new("~/foo.txt");
-
         match expand_homedir(&p) {
             Ok(ep) => assert_eq!(ep, expected),
             Err(_) => assert!(false)
         }
+        
+        // danger - assuming root home dir is /root
+        let rp = Path::new("~root/foo.txt");
+        let erp = Path::new("/root/foo.txt");
+        match expand_homedir(&rp) {
+            Ok(ep) => assert_eq!(ep, erp),
+            Err(_) => assert!(false)
+        }
+
     }
 }
 
