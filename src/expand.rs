@@ -13,26 +13,88 @@ use self::posix::ToNTStr;
 // it's just an clone() function for non-unix.
 #[cfg(all(unix))]
 
-pub fn get_homedir(uname : &str) -> String {
-    let mut pwbuf = [0u8;4096];
+// A more rust like wrapper around getpwnam_r
+// because the pointer-fu was doing my head in.
+pub struct Pwd {
+    pub pw_name : String,
+    pub pw_passwd : String,
+    pub pw_uid : usize,
+    pub pw_gid : usize,
+    pub pw_gecos : String,
+    pub pw_dir : String,
+    pub pw_shell : String
+}
+
+// utility fn to cast a UTF-8 error into a generic IoError
+fn utf8_error(s : &str) -> IoError {
+    IoError{kind: IoErrorKind::OtherIoError,
+            desc: "Invalid UTF-8 parsing",
+            detail: Some(format!("Unable to parse field {}", s).to_string())}
+}
+
+pub fn getpwnam(uname : &str) -> IoResult<Pwd> {
+    let mut result = Pwd {
+        pw_name : String::new(), pw_passwd : String::new(),
+        pw_uid : 0, pw_gid : 0, pw_gecos : String::new(),
+        pw_dir : String::new(), pw_shell : String::new()
+    };
+    let mut pwbuf = [0u8;4096]; // should be big enough
     let mut res : usize = 0;
     let mut pwd = posix::pwd::passwd::new();
     let rv = posix::pwd::getpwnam_r(&uname.to_nt_str(), &mut pwd, &mut pwbuf, &mut res);
+
+    if rv != 0 {
+        return Err(IoError::from_errno(rv as usize, true))
+    }
+
+    result.pw_uid = pwd.pw_uid as usize;
+    result.pw_gid = pwd.pw_gid as usize;
+
+    // copy the string fields
+
+    let pw = pwd.pw_name as *const _;
+    let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
+    match str::from_utf8(hd) {
+        Ok(hd_str) =>  result.pw_name = String::from_str(hd_str),
+        Err(_) => return Err(utf8_error("pw_name"))
+    }
+
+    let pw = pwd.pw_passwd as *const _;
+    let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
+    match str::from_utf8(hd) {
+        Ok(hd_str) =>  result.pw_passwd = String::from_str(hd_str),
+        Err(_) => return Err(utf8_error("pw_passwd"))
+    }
+
+    let pw = pwd.pw_gecos as *const _;
+    let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
+    match str::from_utf8(hd) {
+        Ok(hd_str) =>  result.pw_gecos = String::from_str(hd_str),
+        Err(_) => return Err(utf8_error("pw_gecos"))
+    }
+
     let pw = pwd.pw_dir as *const _;
     let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
-
     match str::from_utf8(hd) {
-        Ok(hd_str) => {
-            if rv == 0 {
-                info!("Fetched homedir of {} as {}", uname, hd_str);
-                hd_str.to_string()
-            } else {
-                warn!("getpwnam_r for \"{}\" returns error code: {}", uname, rv);
-                "/".to_string()
-            }
-        },
+        Ok(hd_str) =>  result.pw_dir = String::from_str(hd_str),
+        Err(_) => return Err(utf8_error("pw_dir"))
+    }
+
+    let pw = pwd.pw_shell as *const _;
+    let hd = unsafe{ ffi::c_str_to_bytes(&pw) };
+    match str::from_utf8(hd) {
+        Ok(hd_str) =>  result.pw_shell = String::from_str(hd_str),
+        Err(_) => return Err(utf8_error("pw_shell"))
+    }
+
+    Ok(result)
+}
+
+pub fn get_homedir(uname : &str) -> String {
+    match getpwnam(uname) {
+        Ok(pwd) => pwd.pw_dir,
         Err(e) => {
-            warn!("pw_dir for \"{}\" is invalid UTF-8: {:?}", uname, e);
+            warn!("Unable to retrieve pwd details for {} : {}", uname, e);
             "/".to_string()
         }
     }
@@ -126,7 +188,9 @@ mod test {
             Err(_) => assert!(false)
         }
         
-        // danger - assuming root home dir is /root
+        // danger - assuming root home dir is /root - this test could
+        // fail on some platforms (well, many, actually)
+        // would prefer to do a mock here for getpwnam().
         let rp = Path::new("~root/foo.txt");
         let erp = Path::new("/root/foo.txt");
         match expand_homedir(&rp) {
