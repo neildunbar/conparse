@@ -38,13 +38,28 @@ pub fn getpwnam(uname : &str) -> IoResult<Pwd> {
         pw_uid : 0, pw_gid : 0, pw_gecos : String::new(),
         pw_dir : String::new(), pw_shell : String::new()
     };
-    let mut pwbuf = [0u8;4096]; // should be big enough
+
+    // NB: There is a bug in RHEL at least, where the ERANGE result
+    // for a too short buffer is not returned, therefore this doubling
+    // of buffer size may not work on RHEL/CentOS 7
+    // This is RHEL bug 1099235; CentOS bug 7324.
+    // Validated that it works OK on Ubuntu 14.04
+
+    let mut pwbuf = vec![0u8;128];
     let mut res : usize = 0;
     let mut pwd = posix::pwd::passwd::new();
-    let rv = posix::pwd::getpwnam_r(&uname.to_nt_str(), &mut pwd, &mut pwbuf, &mut res);
+    loop {
+        let rv = posix::pwd::getpwnam_r(&uname.to_nt_str(), &mut pwd, &mut pwbuf.as_mut_slice(), &mut res);
 
-    if rv != 0 {
-        return Err(IoError::from_errno(rv as usize, true))
+        if rv == 0 {
+            break; // successful return
+        } else if rv == posix::errno::ERANGE {
+            let bsize = pwbuf.capacity() * 2;
+            pwbuf.resize(bsize, 0u8);
+            warn!("buffer size for getpwnam_r too small. Doubling to {}", pwbuf.capacity());
+        } else {
+            return Err(IoError::from_errno(rv as usize, true))
+        }
     }
 
     result.pw_uid = pwd.pw_uid as usize;
