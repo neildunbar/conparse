@@ -1,7 +1,8 @@
 extern crate regex;
-
+extern crate core;
 
 use self::regex::{Regex,Captures};
+use self::core::num::{ParseIntError,ParseFloatError};
 
 use std::collections::{HashMap,HashSet};
 use std::collections::hash_map::{Keys,Iter};
@@ -14,8 +15,9 @@ use std::old_io::{Open,IoError,ReadWrite,MemWriter,MemReader,
 use std::ascii::OwnedAsciiExt;
 use std::str::FromStr;
 use std::os::make_absolute;
-
 use expand::expand_homedir;
+
+
 
 pub struct InterpString {
     raw_string : String
@@ -747,10 +749,10 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Option<usize> = FromStr::from_str(v.as_slice());
+                let m : Result<usize,ParseIntError> = FromStr::from_str(v.as_slice());
                 match m {
-                    Some(u) => Ok(u),
-                    None => Err(FetchError::InvalidLiteral)
+                    Ok(u) => Ok(u),
+                    Err(_) => Err(FetchError::InvalidLiteral)
                 }
             }
         }
@@ -760,10 +762,10 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Option<isize> = FromStr::from_str(v.as_slice());
+                let m : Result<isize,ParseIntError> = FromStr::from_str(v.as_slice());
                 match m {
-                    Some(i) => Ok(i),
-                    None => Err(FetchError::InvalidLiteral)
+                    Ok(i) => Ok(i),
+                    Err(_) => Err(FetchError::InvalidLiteral)
                 }
             }
         }
@@ -773,10 +775,10 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Option<f64> = FromStr::from_str(v.as_slice());
+                let m : Result<f64,ParseFloatError> = FromStr::from_str(v.as_slice());
                 match m {
-                    Some(i) => Ok(i),
-                    None => Err(FetchError::InvalidLiteral)
+                    Ok(i) => Ok(i),
+                    Err(_) => Err(FetchError::InvalidLiteral)
                 }
             }
         }

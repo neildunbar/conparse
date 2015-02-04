@@ -13,15 +13,24 @@ use self::posix::ToNTStr;
 // it's just an clone() function for non-unix.
 #[cfg(all(unix))]
 
-// A more rust like wrapper around getpwnam_r
-// because the pointer-fu was doing my head in.
+/// A more rusty representation of the pwd structure
+/// because the pointer-fu was doing my head in.
+/// 
+/// Returned by `getpwnam`
 pub struct Pwd {
+    /// name of user in passwd db
     pub pw_name : String,
+    /// encoded passwd (probably `*` because of shadow db)
     pub pw_passwd : String,
+    /// user ID
     pub pw_uid : usize,
+    /// primary group ID
     pub pw_gid : usize,
+    /// Gecos/Full Name field
     pub pw_gecos : String,
+    /// home directory
     pub pw_dir : String,
+    /// account shell
     pub pw_shell : String
 }
 
@@ -32,6 +41,21 @@ fn utf8_error(s : &str) -> IoError {
             detail: Some(format!("Unable to parse field {}", s).to_string())}
 }
 
+/// Rust wrapper around posix `getpwnam_r`, but with a less OMG
+/// parameter style.
+///
+/// # Example
+///
+/// ```
+/// use conparse::expand::getpwnam;
+///
+/// match getpwnam("root") {
+///     Ok(pwd) => println!("Root home directory {}; shell {}",
+///                         pwd.pw_dir, pwd.pw_shell),
+///     Err(e) => println!("getpwnam failed: {:?}", e)
+/// }
+/// ```
+///
 pub fn getpwnam(uname : &str) -> IoResult<Pwd> {
     let mut result = Pwd {
         pw_name : String::new(), pw_passwd : String::new(),
@@ -105,6 +129,16 @@ pub fn getpwnam(uname : &str) -> IoResult<Pwd> {
     Ok(result)
 }
 
+///
+/// Returns the home directory of a user, or `'/'` if that home
+/// directory could not be resolved.
+///
+/// # Example
+/// ```
+/// use conparse::expand::get_homedir;
+///
+/// println!("Root's home directory is {}", get_homedir("root"));
+/// ```
 pub fn get_homedir(uname : &str) -> String {
     match getpwnam(uname) {
         Ok(pwd) => pwd.pw_dir,
@@ -115,6 +149,19 @@ pub fn get_homedir(uname : &str) -> String {
     }
 }
 
+/// Corollary to python os.expanduser(), to expand a path of
+/// the form `~<username>/path/to/file` into the full absolute
+/// file system path. Only defined for posix style systems.
+///
+/// # Example
+/// ```
+/// use conparse::expand::expand_homedir;
+///
+/// match expand_homedir(&Path::new("~root/.ssh/config")) {
+///     Ok(p) => println!("Root ssh config file: {}", p.display()),
+///     Err(e) => println!("Error in expanding home dir: {:?}", e)
+/// }
+/// ```
 pub fn expand_homedir(p : &Path) -> IoResult<Path> {
     let u_re = match Regex::new(r"^\s*~(\w*)/(.*)$") {
         Err(_) => return Err(IoError { kind : IoErrorKind::OtherIoError,
