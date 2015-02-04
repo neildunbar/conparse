@@ -1,6 +1,8 @@
 ConfigParser for Rust
 =====================
 
+[![Build Status](https://travis-ci.org/neildunbar/conparse.svg?branch=master)](https://travis-ci.org/neildunbar/conparse)
+
 This is my learning project for Rust, which will explain many of the
 'eeeww!' comments which will be seen while viewing the code. It also
 explains some of those comments which I have made in the code myself.
