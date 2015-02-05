@@ -4,7 +4,6 @@
 #![feature(collections)]
 #![feature(std_misc)]
 #![feature(os)]
-#![feature(rustc_private)]
 
 //! # ConfigParser - a Python style configuration file reader/writer
 //!

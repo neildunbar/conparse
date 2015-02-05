@@ -1,6 +1,6 @@
 [package]
 name = "conparse"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Neil Dunbar <neil.dunbar@pobox.com>"]
 
 [lib]
@@ -9,8 +9,8 @@ test = true
 
 [dependencies]
 
-#log = "^0.2"
-#env_logger = "^0.2"
+log = "^0.2"
+env_logger = "^0.2"
 regex = "^0.1"
 
 [dependencies.posix]
@@ -18,7 +18,4 @@ regex = "^0.1"
 version = "^0.1"
 git = "https://github.com/mahkoh/posix.rs.git"
 
-[dependencies.env_logger]
 
-version = "^0.2"
-git = "https://github.com/rust-lang/log.git"
