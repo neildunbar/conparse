@@ -14,9 +14,8 @@ use std::old_io::{Open,IoError,ReadWrite,MemWriter,MemReader,
                   BufferedReader,IoResult,IoErrorKind,File,standard_error};
 use std::ascii::OwnedAsciiExt;
 use std::str::FromStr;
-use std::os::make_absolute;
 use expand::expand_homedir;
-
+use std::env;
 
 
 pub struct InterpString {
@@ -346,6 +345,15 @@ fn from_reader_helper<T: ContinuationReader>(cp : &mut ConfigParser, r : &mut T)
     }
 }
 
+fn abspath(p: &Path) -> IoResult<Path> {
+    match p.is_absolute() {
+        true => Ok(p.clone()),
+        _ => match env::current_dir() {
+            Ok(mut cwd) => {cwd.push(p); Ok(cwd)},
+            Err(e) => Err(e)
+        }
+    }
+}
 
 impl ConfigParser {
     ///
@@ -395,7 +403,7 @@ impl ConfigParser {
     /// #![feature(io)]
     /// use conparse::conparse::{ConfigParser};
     /// use std::old_io::{BufferedReader,File};
-    /// use std::path::Path;
+    /// use std::old_path::Path;
     ///
     /// fn open_files(fs : &[ &str ]) -> Vec<BufferedReader<File>> {
     ///     fs.iter().filter_map(|&p| match File::open(&Path::new(p)) {
@@ -458,6 +466,7 @@ impl ConfigParser {
         ConfigParser::from_readers(v1.as_mut_slice(), kvdefaults)
     }
 
+
     ///
     /// Create a new ConfigParser from reading a list of files
     ///
@@ -481,7 +490,7 @@ impl ConfigParser {
                     p.clone()
                 }
             };
-            let abs_p = match make_absolute(&exp_p) {
+            let abs_p = match abspath(&exp_p) {
                 Ok(ap) => ap,
                 Err(e) => {
                     error!("Cannot make absolute directory of {} : {}", p.display(), e);

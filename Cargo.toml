@@ -16,6 +16,6 @@ regex = "^0.1"
 [dependencies.posix]
 
 version = "^0.1"
-git = "https://github.com/mahkoh/posix.rs.git"
+git = "https://github.com/neildunbar/posix.rs.git"
 
 

@@ -3,7 +3,7 @@
 #![feature(io)]
 #![feature(collections)]
 #![feature(std_misc)]
-#![feature(os)]
+#![feature(env)]
 
 //! # ConfigParser - a Python style configuration file reader/writer
 //!

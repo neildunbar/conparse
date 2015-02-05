@@ -3,7 +3,7 @@ extern crate regex;
 
 use self::regex::Regex;
 use std::old_io::{IoResult,IoErrorKind,IoError};
-use std::os;
+use std::env;
 use std::ffi;
 use std::str;
 use self::posix::ToNTStr;
@@ -247,7 +247,7 @@ pub fn expand_homedir(p : &Path) -> IoResult<Path> {
             match c.at(1) {
                 Some(u) => {
                     let mut rp = match u {
-                        "" =>  match os::homedir() {
+                        "" =>  match env::home_dir() {
                             Some(h) => Path::new(h),
                             None => Path::new("/") // no home dir -
                                 // assume root
@@ -291,7 +291,7 @@ mod test {
     extern crate env_logger;
     extern crate posix;
 
-    use std::os;
+    use std::env;
     use expand::*;
     use self::posix::ToNTStr;
     use std::old_io::IoErrorKind;
@@ -334,7 +334,7 @@ mod test {
     fn test_expand_homedir() {
         // env_logger::init().unwrap();
 
-        let homedir = match os::homedir() {
+        let homedir = match env::home_dir() {
             Some(h) => h,
             None => { Path::new("bound-to-fail")}
         };
