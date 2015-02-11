@@ -1,11 +1,11 @@
 [root]
 name = "conparse"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "env_logger 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "posix 0.1.1 (git+https://github.com/neildunbar/posix.rs.git)",
- "regex 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -13,13 +13,13 @@ name = "env_logger"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "log 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "regex 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "log"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -29,6 +29,6 @@ source = "git+https://github.com/neildunbar/posix.rs.git#3b3722c5b25248a223a200e
 
 [[package]]
 name = "regex"
-version = "0.1.13"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 

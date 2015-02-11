@@ -180,14 +180,8 @@
 //!     let mut cp = ConfigParser::from_str(
 //!              "[default] ; top section \n  hostname=localhost \n",
 //!              &[("domain", "mydomain.org")]);
-//!     match cp.set("default", "hostname", "myhost.%(domain)s") {
-//!         Ok(_) => {},
-//!         Err(e) => { error!("Unable to set hostname: {:?}", e);}
-//!     }
-//!     match cp.set("default", "port", "11313") {
-//!         Ok(_) => {},
-//!         Err(e) => { error!("Unable to set port: {:?}", e);}
-//!     }
+//!     cp.set("default", "hostname", "myhost.%(domain)s");
+//!     cp.set("default", "port", "11313");
 //!     match cp.get("default", "hostname") {
 //!         Ok(h) => { println!("Hostname is: {}", h); },
 //!         Err(e) => { error!("Unable to get hostname: {:?}", e);}

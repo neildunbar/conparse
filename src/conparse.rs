@@ -5,7 +5,7 @@ use self::regex::{Regex,Captures};
 use self::core::num::{ParseIntError,ParseFloatError};
 
 use std::collections::{HashMap,HashSet};
-use std::collections::hash_map::{Keys,Iter};
+use std::collections::hash_map::{Keys,Iter,Entry};
 use std::error::Error;
 use std::fmt::{Display,Formatter,Debug};
 use std::fmt;
@@ -663,16 +663,15 @@ impl ConfigParser {
         self.sections.contains_key(s)
     }
 
-    pub fn set(&mut self, section: &str, option: &str, value: &str) -> Result<(),FetchError> {
-        if !self.sections.contains_key(section) {
-            let opts : HashMap<String, InterpString> = HashMap::new();
-            self.sections.insert(section.to_string(), opts);
-        }
-        match self.sections.get_mut(section) {
-            Some(s) => { s.insert(option.to_string(), InterpString::new(value)); Ok(()) },
-            None => {
-                error!("Section {} does not exist (but should have been created)", section);
-                Err(FetchError::NoSuchSection)
+    pub fn set(&mut self, section: &str, option: &str, value: &str) -> () {
+        match self.sections.entry(section.to_string()) {
+            Entry::Occupied(mut o) => {
+                o.get_mut().insert(option.to_string(), InterpString::new(value));
+            },
+            Entry::Vacant(v) => {
+                let mut opts : HashMap<String, InterpString> = HashMap::new();
+                opts.insert(option.to_string(), InterpString::new(value));
+                v.insert(opts);
             }
         }
     }
@@ -827,7 +826,7 @@ mod test {
     #[test]
     fn set_option() {
         let mut rp = ConfigParser::new(&[( "t1", "v1"), ("t2", "v2")]);
-        assert!(rp.set("global", "t1", "sv1").is_ok());
+        rp.set("global", "t1", "sv1");
         assert_eq!(rp.get("global", "t1").ok().unwrap(), "sv1");
         assert_eq!(rp.get("global", "t2").ok().unwrap(), "v2");
         let mut r = rp.get("no-section", "t3");
@@ -1112,7 +1111,7 @@ mod test {
     fn test_option_manipulation() {
         let mut cp = ConfigParser::new(&[]);
         assert!(cp.add_section("foo").is_ok());
-        assert!(cp.set("foo", "bar", "quux").is_ok());
+        cp.set("foo", "bar", "quux");
         assert!(cp.has_option("foo", "bar").unwrap());
         assert!(! cp.has_option("foo", "wibble").unwrap());
         match cp.remove_option("foo", "bar") {
