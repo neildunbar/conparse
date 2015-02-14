@@ -1,6 +1,6 @@
 [package]
 name = "conparse"
-version = "0.0.6"
+version = "0.0.7"
 authors = ["Neil Dunbar <neil.dunbar@pobox.com>"]
 
 [lib]

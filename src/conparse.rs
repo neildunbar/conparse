@@ -642,16 +642,52 @@ impl ConfigParser {
         }
     }
 
+    ///
+    /// Adds an (empty) section to a mutable `ConfigParser` object.
+    /// If the section already exists, a
+    /// `FetchError::DuplicateSection` error is returned, otherwise
+    /// `()` is returned as an `Ok` value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let mut cp = ConfigParser::new(&[]);
+    /// assert!(cp.add_section("foo").is_ok());
+    /// assert!(cp.add_section("foo").is_err()); // duplicating section
+    /// ```
     pub fn add_section(&mut self, s : &str) -> Result<(), FetchError> {
-        if ! self.sections.contains_key(s) {
-            let opts : HashMap<String, InterpString> = HashMap::new();
-            self.sections.insert(s.to_string(), opts);
-            Ok(())
-        } else {
-            Err(FetchError::DuplicateSection)
+        let sec = s.to_string();
+        match self.sections.entry(sec) {
+            Entry::Occupied(_) => Err(FetchError::DuplicateSection),
+            Entry::Vacant(v) => {
+                v.insert(HashMap::new());
+                Ok(())
+            }
         }
     }
 
+    /// Zaps a section from a `ConfigParser`. If the section does not
+    /// exist, a `FetchError::NoSuchSection` is returned as error.
+    /// Otherwise `()` is returned as an `Ok` value. Note that this
+    /// deletes all options contained within the section.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    /// 
+    /// let mut cp = ConfigParser::from_str("[foo]\n\
+    ///    bar = quux\n\
+    ///    \n\
+    ///    [wibble]\n\
+    ///    bar2 = quux2\n", &[]);
+    /// assert!(cp.has_section("foo"));
+    /// cp.remove_section("foo");
+    /// assert!(! cp.has_section("foo"));
+    /// assert!(cp.get("foo", "bar").is_err()); // NoSuchSection
+    /// ```
     pub fn remove_section(&mut self, s : &str) -> Result<(), FetchError> {
         match self.sections.remove(s) {
             Some(_) => Ok(()),
@@ -659,23 +695,68 @@ impl ConfigParser {
         }
     }
 
+    ///
+    /// Returns a boolean as to whether a given section exists or not
+    ///
+    /// # Example
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let cp = ConfigParser::from_str("[foo]\n[bar]\n", &[]);
+    /// assert!(cp.has_section("foo"));
+    /// assert!(! cp.has_section("quux"));
+    /// ```
     pub fn has_section(&self, s : &str) -> bool {
         self.sections.contains_key(s)
     }
 
+    ///
+    /// sets an option to a given value, inside a given section
+    /// if the section does not exist, it will be created. If the
+    /// option within the section already exists, it will be
+    /// overwritten. Returns no result.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let mut cp = ConfigParser::new(&[]);
+    /// cp.set("mysection", "myoption", "myvalue" );
+    /// ```
+    ///
     pub fn set(&mut self, section: &str, option: &str, value: &str) -> () {
         match self.sections.entry(section.to_string()) {
             Entry::Occupied(mut o) => {
                 o.get_mut().insert(option.to_string(), InterpString::new(value));
             },
             Entry::Vacant(v) => {
-                let mut opts : HashMap<String, InterpString> = HashMap::new();
+                let mut opts = HashMap::new();
                 opts.insert(option.to_string(), InterpString::new(value));
                 v.insert(opts);
             }
         }
     }
 
+    ///
+    /// Deletes an option from a given section
+    /// If the option does not exist, `FetchError::NoSuchOption` is returned as error
+    /// If the section does not exist, `FetchError::NoSuchSection` is
+    /// returned as error
+    /// On successful completion, `()` is returned as `Ok` value
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let mut cp = ConfigParser::new(&[]);
+    ///
+    /// cp.set("foosection", "baroption", "quuxval");
+    /// assert!(cp.get("foosection", "baroption").is_ok());
+    /// cp.remove_option("foosection", "baroption");
+    /// assert!(cp.get("foosection", "baroption").is_err());
+    /// ```
     pub fn remove_option(&mut self, section : &str, option: &str) -> Result<(),FetchError> {
         match self.sections.get_mut(section) {
             Some(opts) => {
@@ -695,6 +776,30 @@ impl ConfigParser {
         }
     }
 
+    ///
+    /// Fetches a given option from a given section, and returns the
+    /// value of the option *without* interpolation. If the section
+    /// does not exist `FetchError::NoSuchSection` is returned as
+    /// error; if the option does not exist,
+    /// `FetchError::NoSuchOption` is returned as error. Otherwise the
+    /// raw option is returned as a `String`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let cp =
+    /// ConfigParser::from_str("[foo]\n\
+    ///     bar=quux\n\
+    ///     bar2=%(bar)s is fun\n", &[]);
+    ///
+    /// let mut b2 = cp.get("foo", "bar2");
+    /// assert!(b2.is_ok() && b2.unwrap().as_slice() == "quux is fun"); // interpolate
+    /// let mut b2 = cp.get_raw("foo", "bar2");
+    /// assert!(b2.is_ok() && b2.unwrap().as_slice() == "%(bar)s is fun");
+    /// // no interpolation with get_raw
+    /// ```
     pub fn get_raw(&self, section: &str, option: &str) -> Result<String, FetchError> {
         match self.sections.get(section) {
             Some(opts) => match opts.get(option) {
@@ -705,6 +810,25 @@ impl ConfigParser {
         }
     }
 
+    ///
+    /// Returns true if section `section` contains an option `option`
+    /// (or if there is a default option called `option`). If the
+    /// section does not exist, `FetchError::NoSuchSection` is
+    /// returned as an error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use conparse::conparse::ConfigParser;
+    ///
+    /// let cp = ConfigParser::from_str(
+    ///      "[foo]\n\
+    ///       bar : quux\n", &[]);
+    /// let ho = cp.has_option("foo", "bar");
+    /// assert!(ho.is_ok() && ho.unwrap() == true);
+    /// let ho2 = cp.has_option("foo", "missing");
+    /// assert!(ho2.is_ok() && ho2.unwrap() == false);
+    /// ```
     pub fn has_option(&self, section: &str, option: &str) -> Result<bool, FetchError> {
         match self.sections.get(section) {
             Some(opts) => Ok(opts.contains_key(option) || self.defaults.contains_key(option)),
