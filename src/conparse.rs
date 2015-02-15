@@ -40,40 +40,68 @@ pub struct ConfigParser {
     i_re : Regex // %(option)s interpolation regex
 }
 
-#[derive(Debug,Copy,PartialEq)]
-pub enum FetchError {
+#[derive(Debug,Copy,PartialEq,Eq,Clone)]
+pub enum FetchErrorKind {
+    /// A requested section does not exist
     NoSuchSection,
+    /// A requested option does not exit
     NoSuchOption,
+    /// An attempt was made to add a section which already exists
     DuplicateSection,
+    /// An interpolation refers to an option which does not exist
     InterpolationError,
+    /// An interpolation chain is circular
     InterpolationCircularity,
+    /// An attempt was made to translate an invalid string to another type
     InvalidLiteral
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct FetchError {
+    kind: FetchErrorKind,
+    description: &'static str,
+    detail: Option<String>
 }
 
 impl Error for FetchError {
     fn description(&self) -> &str {
-        match *self {
-            FetchError::NoSuchSection => "No such configuration section",
-            FetchError::NoSuchOption => "No such configuration option",
-            FetchError::DuplicateSection => "Section already exists",
-            FetchError::InterpolationError => "Interpolation into option failed",
-            FetchError::InterpolationCircularity => "Interpolation is infinitely recursive",
-            FetchError::InvalidLiteral => "Value cannot be parsed into desired type"
-        }
+        self.description
+    }
+}
+
+impl FetchError {
+    pub fn new(k : FetchErrorKind, desc: &'static str, details : Option<String>) -> FetchError {
+        FetchError{ kind : k, description : desc, detail : details }
+    }
+
+    pub fn kind(&self) -> FetchErrorKind{
+        self.kind
+    }
+
+    pub fn detail(&self) -> Option<String> {
+        self.detail.clone()
+    }
+}
+
+fn fe_error(k : FetchErrorKind) -> FetchError {
+    match k {
+        FetchErrorKind::NoSuchSection => FetchError::new(k, "No such configuration section", None),
+        FetchErrorKind::NoSuchOption => FetchError::new(k, "No such configuration option", None),
+        FetchErrorKind::DuplicateSection => FetchError::new(k, "Section already exists", None),
+        FetchErrorKind::InterpolationError => FetchError::new(k, "Interpolation into option failed", None),
+        FetchErrorKind::InterpolationCircularity => FetchError::new(k, "Interpolation is infinitely recursive", None),
+        FetchErrorKind::InvalidLiteral => FetchError::new(k, "Value cannot be parsed into desired type", None),
     }
 }
 
 impl Display for FetchError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}",
-               match *self {
-                   FetchError::NoSuchSection => "NoSuchSection",
-                   FetchError::NoSuchOption => "NoSuchOption",
-                   FetchError::DuplicateSection => "DuplicateSection",
-                   FetchError::InterpolationError => "InterpolationError",
-                   FetchError::InterpolationCircularity => "InterpolationCircularity",
-                   FetchError::InvalidLiteral => "InvalidLiteral"
-               })
+        match *self {
+            FetchError{ detail: None, description, ..} =>
+                write!(f, "{}", description),
+            FetchError{ detail: Some(ref details), description, ..} =>
+                write!(f, "{} ({})", description, details)
+        }
     }
 }
 
@@ -119,7 +147,7 @@ impl InterpString {
         }
         if oname == option || expanded.contains(oname) {
             warn!("Option {} has already been expanded or circular definition?", oname);
-            return Err(FetchError::InterpolationCircularity)
+            return Err(fe_error(FetchErrorKind::InterpolationCircularity))
         }
         
         info!("Inserting {} into expanded set", oname);
@@ -131,8 +159,8 @@ impl InterpString {
                 warn!("Error in lookup for interpolation of {}:{}: {:?}",
                       sec, oname, e);
                 
-                Err(if e == FetchError::InterpolationCircularity {e}
-                    else {FetchError::InterpolationError})
+                Err(if e.kind() == FetchErrorKind::InterpolationCircularity {e}
+                    else {fe_error(FetchErrorKind::InterpolationError)})
             }
         }
     }
@@ -660,7 +688,7 @@ impl ConfigParser {
     pub fn add_section(&mut self, s : &str) -> Result<(), FetchError> {
         let sec = s.to_string();
         match self.sections.entry(sec) {
-            Entry::Occupied(_) => Err(FetchError::DuplicateSection),
+            Entry::Occupied(_) => Err(fe_error(FetchErrorKind::DuplicateSection)),
             Entry::Vacant(v) => {
                 v.insert(HashMap::new());
                 Ok(())
@@ -691,7 +719,7 @@ impl ConfigParser {
     pub fn remove_section(&mut self, s : &str) -> Result<(), FetchError> {
         match self.sections.remove(s) {
             Some(_) => Ok(()),
-            None => Err(FetchError::NoSuchSection)
+            None => Err(fe_error(FetchErrorKind::NoSuchSection))
         }
     }
 
@@ -762,17 +790,17 @@ impl ConfigParser {
             Some(opts) => {
                 match opts.remove(option) {
                     Some(_) => Ok(()),
-                    None => Err(FetchError::NoSuchOption)
+                    None => Err(fe_error(FetchErrorKind::NoSuchOption))
                 }
             },
-            None => Err(FetchError::NoSuchSection)
+            None => Err(fe_error(FetchErrorKind::NoSuchSection))
         }
     }
 
-    fn get_default(&self, option: &str, fe: FetchError) -> Result<String, FetchError> {
+    fn get_default(&self, option: &str, fe: FetchErrorKind) -> Result<String, FetchError> {
         match self.defaults.get(option) {
             Some(v) => Ok(v.clone()),
-            None => Err(fe)
+            None => Err(fe_error(fe))
         }
     }
 
@@ -804,9 +832,9 @@ impl ConfigParser {
         match self.sections.get(section) {
             Some(opts) => match opts.get(option) {
                 Some(v) => Ok(v.get_raw()),
-                None => self.get_default(option, FetchError::NoSuchOption)
+                None => self.get_default(option, FetchErrorKind::NoSuchOption)
             },
-            None => self.get_default(option, FetchError::NoSuchSection)
+            None => self.get_default(option, FetchErrorKind::NoSuchSection)
         }
     }
 
@@ -832,7 +860,7 @@ impl ConfigParser {
     pub fn has_option(&self, section: &str, option: &str) -> Result<bool, FetchError> {
         match self.sections.get(section) {
             Some(opts) => Ok(opts.contains_key(option) || self.defaults.contains_key(option)),
-            None => Err(FetchError::NoSuchSection)
+            None => Err(fe_error(FetchErrorKind::NoSuchSection))
         }
     }
 
@@ -841,9 +869,9 @@ impl ConfigParser {
         match self.sections.get(section) {
             Some(opts) => match opts.get(option) {
                 Some(v) => v.get(section, option, self, expanded),
-                None => self.get_default(option, FetchError::NoSuchOption)
+                None => self.get_default(option, FetchErrorKind::NoSuchOption)
             },
-            None => self.get_default(option, FetchError::NoSuchSection)
+            None => self.get_default(option, FetchErrorKind::NoSuchSection)
         }
     }
 
@@ -872,7 +900,7 @@ impl ConfigParser {
                         return Ok(false)
                     }
                 }
-                Err(FetchError::InvalidLiteral)
+                Err(fe_error(FetchErrorKind::InvalidLiteral))
             }
         }
     }
@@ -884,7 +912,7 @@ impl ConfigParser {
                 let m : Result<usize,ParseIntError> = FromStr::from_str(v.as_slice());
                 match m {
                     Ok(u) => Ok(u),
-                    Err(_) => Err(FetchError::InvalidLiteral)
+                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
                 }
             }
         }
@@ -897,7 +925,7 @@ impl ConfigParser {
                 let m : Result<isize,ParseIntError> = FromStr::from_str(v.as_slice());
                 match m {
                     Ok(i) => Ok(i),
-                    Err(_) => Err(FetchError::InvalidLiteral)
+                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
                 }
             }
         }
@@ -910,7 +938,7 @@ impl ConfigParser {
                 let m : Result<f64,ParseFloatError> = FromStr::from_str(v.as_slice());
                 match m {
                     Ok(i) => Ok(i),
-                    Err(_) => Err(FetchError::InvalidLiteral)
+                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
                 }
             }
         }
@@ -923,7 +951,7 @@ impl ConfigParser {
     pub fn options(&self, section: &str) -> Result<Iter<String,InterpString>, FetchError> {
         match self.sections.get(section) {
             Some(opts) =>  Ok(opts.iter()),
-            None=> Err(FetchError::NoSuchSection)
+            None=> Err(fe_error(FetchErrorKind::NoSuchSection))
         }
     }
 }
@@ -954,9 +982,9 @@ mod test {
         assert_eq!(rp.get("global", "t1").ok().unwrap(), "sv1");
         assert_eq!(rp.get("global", "t2").ok().unwrap(), "v2");
         let mut r = rp.get("no-section", "t3");
-        assert!(r.is_err() && r.err().unwrap() == FetchError::NoSuchSection);
+        assert!(r.is_err() && r.err().unwrap().kind() == FetchErrorKind::NoSuchSection);
         r = rp.get("global", "t3");
-        assert!(r.is_err() && r.err().unwrap() == FetchError::NoSuchOption);
+        assert!(r.is_err() && r.err().unwrap().kind() == FetchErrorKind::NoSuchOption);
     }
 
     #[test]
@@ -1012,7 +1040,7 @@ mod test {
         let cp = ConfigParser::from_str("foo = quux\n  [Zulu] \nfoo =  bar\n\
                       [ Alpha ] \nfoo : wibble\n\nbar = quux  ", &[]);
         let os = cp.options("NotHere");
-        assert!(os.is_err() && os.err().unwrap() == FetchError::NoSuchSection);
+        assert!(os.is_err() && os.err().unwrap().kind() == FetchErrorKind::NoSuchSection);
         let os2 = cp.options("Alpha");
         assert!(os2.is_ok());
         let mut opts : Vec<(&String,&InterpString)> = os2.unwrap().collect();
@@ -1147,11 +1175,11 @@ mod test {
         }
         match cp.get("No-Such-Section", "foo") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::NoSuchSection)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::NoSuchSection)
         }
         match cp.get("Alpha", "No-Such-Option") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::NoSuchOption)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::NoSuchOption)
         }
     }
 
@@ -1186,7 +1214,7 @@ mod test {
         }
         match cp.get("Section1", "foo") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InterpolationError)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InterpolationError)
         }
     }
 
@@ -1209,7 +1237,7 @@ mod test {
         let cp = ConfigParser::from_str("[Section1]\na : x%(b)sy\nb : x%(c)sy\nc: x%(a)sy\n", &[]);
         match cp.get("Section1", "c") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InterpolationCircularity)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InterpolationCircularity)
         }
     }
 
@@ -1220,14 +1248,14 @@ mod test {
         assert!(cp.add_section("foo").is_ok());
         match cp.add_section("foo") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::DuplicateSection)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::DuplicateSection)
         }
         assert!(cp.has_section("foo"));
         assert!(cp.remove_section("foo").is_ok());
         assert!(! cp.has_section("foo"));
         match cp.remove_section("foo") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::NoSuchSection)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::NoSuchSection)
         }
     }
 
@@ -1244,7 +1272,7 @@ mod test {
         }
         match cp.remove_option("foo", "bar") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::NoSuchOption)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::NoSuchOption)
         }
     }
 
@@ -1265,15 +1293,15 @@ mod test {
         }
         match cp.getuint("global","t2") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
         match cp.getuint("global","t3") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
         match cp.getuint("global","t4") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
 
         // now signed
@@ -1287,11 +1315,11 @@ mod test {
         }
         match cp.getint("global","t3") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
         match cp.getuint("global","t4") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
 
         // now signed
@@ -1305,7 +1333,7 @@ mod test {
         }
         match cp.getfloat("global","t3") {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, FetchError::InvalidLiteral)
+            Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
         match cp.getfloat("global","t4") {
             Ok(f) => assert_eq!(f, 12E+99f64),
