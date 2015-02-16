@@ -3,6 +3,8 @@ extern crate regex;
 
 use self::regex::Regex;
 use std::old_io::{IoResult,IoErrorKind,IoError};
+// only need env for non-test builds
+#[cfg(not(test))]
 use std::env;
 use std::ffi;
 use std::str;
@@ -189,6 +191,19 @@ pub fn getpwnam(uname : &str) -> IoResult<Pwd> {
     Ok(result)
 }
 
+#[cfg (test)]
+// test version of home dir
+#[inline]
+fn fetch_home_dir() -> Option<Path> {
+    Some(Path::new("/my/test/home"))
+}
+
+#[cfg (not(test))]
+#[inline]
+fn fetch_home_dir() -> Option<Path> {
+    env::home_dir()
+}
+
 ///
 /// Returns the home directory of a user, or `'/'` if that home
 /// directory could not be resolved.
@@ -247,7 +262,11 @@ pub fn expand_homedir(p : &Path) -> IoResult<Path> {
             match c.at(1) {
                 Some(u) => {
                     let mut rp = match u {
-                        "" =>  match env::home_dir() {
+                        
+                        "" =>  match fetch_home_dir() {
+                            // Just a "~/" string, so no need
+                            // for getpwnam, can just ask for home dir
+
                             Some(h) => Path::new(h),
                             None => Path::new("/") // no home dir -
                                 // assume root
@@ -291,7 +310,6 @@ mod test {
     extern crate env_logger;
     extern crate posix;
 
-    use std::env;
     use expand::*;
     use self::posix::ToNTStr;
     use std::old_io::IoErrorKind;
@@ -332,23 +350,13 @@ mod test {
 
     #[test]
     fn test_expand_homedir() {
-        // env_logger::init().unwrap();
-
-        let homedir = match env::home_dir() {
-            Some(h) => h,
-            None => { Path::new("bound-to-fail")}
-        };
-        let mut expected = Path::new(homedir);
-        expected.push("foo.txt");
+        let expected = Path::new("/my/test/home/foo.txt");
         let p = Path::new("~/foo.txt");
         match expand_homedir(&p) {
             Ok(ep) => assert_eq!(ep, expected),
             Err(_) => assert!(false)
         }
         
-        // danger - assuming root home dir is /root - this test could
-        // fail on some platforms (well, many, actually)
-        // would prefer to do a mock here for getpwnam().
         let rp = Path::new("~root/foo.txt");
         let erp = Path::new("/root/foo.txt");
         match expand_homedir(&rp) {
