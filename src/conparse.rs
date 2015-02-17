@@ -301,14 +301,37 @@ impl<T:Buffer> ContinuationReader for T {
     }
 }
 
+// this should be returning Option<(String,Option<String>)> to cover
+// the case where the line is a simple "key" (without a '=' or ':')
+// value to the right of it. For the moment, if we get a key without
+// an attendant value, we set the value to an empty string, but this
+// isn't really the appropriate thing to do.
 fn get_captured_kv(c : regex::Captures) -> Option<(String,String)> {
     if c.len() < 2 {
         return None
     }
+    debug!("Capture 1: {}",
+          match c.at(1) {
+              Some(t) => t,
+              _ => "None"
+          });
+
+    debug!("Capture 2: {}",
+          match c.at(2) {
+              Some(t) => t,
+              _ => "None"
+          });
+
+    debug!("Capture 3: {}",
+          match c.at(3) {
+              Some(t) => t,
+              _ => "None"
+          });
+
     match c.at(1) {
-        Some(key) => match c.at(2) {
+        Some(key) => match c.at(3) {
             Some(val) => Some((key.to_string(), val.to_string())),
-            _ => None
+            _ => Some((key.to_string(), String::from_str(""))),
         },
         _ => None,
     }
@@ -403,7 +426,7 @@ impl ConfigParser {
         // make these regex macros once it's not experimental
         // unwrap() in init code == teh suck
         let sect_re = Regex::new(r"^\[\s*(\w+)\s*\](\s*[#;].*)?$").unwrap();
-        let option_re = Regex::new(r"^(\w+)\s*[:=]\s*(.*)$").unwrap();
+        let option_re = Regex::new(r"^(\w+)(\s*[:=]\s*(.*))?$").unwrap();
         let interp_re = Regex::new(r"(%\(\s*(\w+)\s*\)s)").unwrap();
         let sects : HashMap<String, Props> = HashMap::new();
         ConfigParser { defaults: df, sections : sects,
@@ -665,7 +688,8 @@ impl ConfigParser {
 
     fn option_kv(&self, s: &str) -> Option<(String,String)> {
         match self.o_re.captures(s.trim()) {
-            Some(c) => get_captured_kv(c),
+            Some(c) => {
+                get_captured_kv(c)},
             _ => None
         }
     }
@@ -883,9 +907,13 @@ impl ConfigParser {
     // Now I wish Rust had default param values - having a boolean
     // 'raw' would be handy here, to avoid the attempt to interpolate.
     pub fn getboolean(&self, section: &str, option: &str) -> Result<bool, FetchError> {
-        let trues = vec!["true","yes","on","1"];
+        let trues = vec!["true","yes","on","1",""];
         let falses = vec!["false", "no", "off", "0"];
 
+        // note that empty string counts as true, ie, so we can
+        // have things like getboolean("foo", "skip_init") return
+        // true if we just have "skip_init" in config string,
+        // not necessarily "skip_init = true"
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
@@ -909,10 +937,15 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Result<usize,ParseIntError> = FromStr::from_str(v.as_slice());
-                match m {
-                    Ok(u) => Ok(u),
-                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                if v == "" {
+                    // empty string counts as a '1' value
+                    Ok(1)
+                } else {
+                    let m : Result<usize,ParseIntError> = FromStr::from_str(v.as_slice());
+                    match m {
+                        Ok(u) => Ok(u),
+                        Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                    }
                 }
             }
         }
@@ -922,10 +955,14 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Result<isize,ParseIntError> = FromStr::from_str(v.as_slice());
-                match m {
-                    Ok(i) => Ok(i),
-                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                if v == "" {
+                    Ok(1)
+                } else {
+                    let m : Result<isize,ParseIntError> = FromStr::from_str(v.as_slice());
+                    match m {
+                        Ok(i) => Ok(i),
+                        Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                    }
                 }
             }
         }
@@ -935,10 +972,14 @@ impl ConfigParser {
         match self.get(section, option) {
             Err(e) => Err(e),
             Ok(v) => {
-                let m : Result<f64,ParseFloatError> = FromStr::from_str(v.as_slice());
-                match m {
-                    Ok(i) => Ok(i),
-                    Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                if v == "" {
+                    Ok(1.0f64)
+                } else {
+                    let m : Result<f64,ParseFloatError> = FromStr::from_str(v.as_slice());
+                    match m {
+                        Ok(i) => Ok(i),
+                        Err(_) => Err(fe_error(FetchErrorKind::InvalidLiteral))
+                    }
                 }
             }
         }
@@ -1037,16 +1078,24 @@ mod test {
 
     #[test]
     fn read_options() {
-        let cp = ConfigParser::from_str("foo = quux\n  [Zulu] \nfoo =  bar\n\
-                      [ Alpha ] \nfoo : wibble\n\nbar = quux  ", &[]);
+        let cp = ConfigParser::from_str(
+            "foo = quux\n  \
+             [Zulu] \n\
+             foo =  bar\n\
+             [ Alpha ] \n\
+             foo : wibble\n\
+             standalone\n\
+             \n\
+             bar = quux  ", &[]);
         let os = cp.options("NotHere");
         assert!(os.is_err() && os.err().unwrap().kind() == FetchErrorKind::NoSuchSection);
         let os2 = cp.options("Alpha");
         assert!(os2.is_ok());
+        assert!(cp.has_option("Alpha", "standalone").unwrap());
         let mut opts : Vec<(&String,&InterpString)> = os2.unwrap().collect();
         opts.sort_by(|&(k1,_),&(k2,_)| k1.cmp(k2));
 
-        let ev = [("bar","quux"), ("foo","wibble")];
+        let ev = [("bar","quux"), ("foo","wibble"), ("standalone", "")];
         assert_eq!(opts.len(), ev.len());
         for (&(k1,v1),&(k2,v2)) in opts.iter().zip(ev.iter()) {
             assert_eq!(k1.as_slice(),k2);
@@ -1283,7 +1332,8 @@ mod test {
              t1 : 123456\n\
              t2 : -1234\n\
              t3 : not-a-good-number\n\
-             t4 : 12E+99\n",
+             t4 : 12E+99\n\
+             t5",
             &[]);
 
         // unsigned tests first
@@ -1303,6 +1353,10 @@ mod test {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
+        match cp.getuint("global","t5") {
+            Ok(u) => assert_eq!(u, 1),
+            Err(_) => assert!(false)
+        }
 
         // now signed
         match cp.getint("global","t1") {
@@ -1321,8 +1375,12 @@ mod test {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e.kind(), FetchErrorKind::InvalidLiteral)
         }
+        match cp.getint("global","t5") {
+            Ok(i) => assert_eq!(i, 1),
+            Err(_) => assert!(false)
+        }
 
-        // now signed
+        // now float
         match cp.getfloat("global","t1") {
             Ok(f) => assert_eq!(f, 123456.0),
             Err(_) => assert!(false)
@@ -1338,6 +1396,49 @@ mod test {
         match cp.getfloat("global","t4") {
             Ok(f) => assert_eq!(f, 12E+99f64),
             Err(_) => assert!(false)
+        }
+        match cp.getfloat("global","t5") {
+            Ok(f) => assert_eq!(f, 1.0f64),
+            Err(_) => assert!(false)
+        }
+    }
+
+    #[test]
+    fn test_bool_parsing() {
+        let cp = ConfigParser::from_str(
+            "[global]\n\
+             t1 : true\n\
+             t2 : yes\n\
+             t3 : false\n\
+             t4 : no\n\
+             t5 : 0\n\
+             t6 : 1\n\
+             t7\n",
+            &[]);
+
+        // check that we got all the options we thought we
+        // should have
+        for t in &["t1", "t2", "t3", "t4", "t5", "t6", "t7"] {
+            match cp.has_option("global", t) {
+                Ok(r) => assert!(r),
+                _ => assert!(false)
+            }
+        }
+
+        // true tests
+        for t in &["t1", "t2", "t6", "t7"] {
+            match cp.getboolean("global", t) {
+                Ok(r) => assert!(r),
+                _ => assert!(false)
+            }
+        }
+
+        // false tests
+        for t in &["t3", "t4", "t5"] {
+            match cp.getboolean("global", t) {
+                Ok(r) => assert!(!r),
+                _ => assert!(false)
+            }
         }
     }
 }
